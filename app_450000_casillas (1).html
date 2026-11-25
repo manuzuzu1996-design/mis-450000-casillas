@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#176b50">
+<title>Mis 450.000 casillas</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#18231f;background:#f3f7f5}
+*{box-sizing:border-box}body{margin:0}header{background:#176b50;color:white;padding:22px 18px 25px}
+h1{font-size:22px;margin:0 0 5px}.sub{opacity:.88;font-size:13px}
+main{max-width:850px;margin:auto;padding:16px}
+.panel{background:white;border-radius:16px;padding:16px;margin:0 0 14px;box-shadow:0 2px 12px #183c2b10}
+.stats{display:flex;justify-content:space-between;gap:12px;align-items:end}
+.big{font-size:27px;font-weight:750;color:#176b50}.muted{color:#64736c;font-size:12px}
+progress{width:100%;height:12px;margin-top:12px;accent-color:#176b50}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+input,button{font:inherit;border-radius:10px;border:1px solid #d4ded9;padding:11px;background:white}
+input{min-width:0;flex:1;width:100%}button{cursor:pointer;font-weight:650}
+.primary{background:#176b50;color:white;border-color:#176b50}
+button:disabled{opacity:.4;cursor:not-allowed}
+.nav{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
+.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+.cell{border:1px solid #dce5e0;border-radius:9px;min-height:43px;display:flex;align-items:center;justify-content:center;gap:4px;font-size:13px;background:#fff}
+.cell.done{background:#e2f4eb;border-color:#79b99a;color:#145d40;font-weight:700}
+.cell input{flex:0 0 auto;width:16px;height:16px;margin:0;accent-color:#176b50}
+.note{font-size:12px;color:#64736c;line-height:1.5}
+@media(min-width:560px){.grid{grid-template-columns:repeat(10,minmax(0,1fr))}.cell{min-height:46px}}
+</style>
+</head>
+<body>
+<header><h1>Mis 450.000 casillas</h1><div class="sub">Marca cada número y lleva el control de tu avance.</div></header>
+<main>
+<section class="panel">
+ <div class="stats"><div><div class="muted">CASILLAS COMPLETADAS</div><div class="big" id="count">0 / 450.000</div></div><div class="big" id="pct">0%</div></div>
+ <progress id="progress" max="450000" value="0"></progress>
+ <div class="muted" id="remaining" style="margin-top:7px">Faltan 450.000 casillas</div>
+</section>
+<section class="panel">
+ <div class="controls">
+  <input id="jump" type="number" min="1" max="450000" placeholder="Ir al número (1 a 450.000)">
+  <button class="primary" id="go">Ir</button>
+ </div>
+ <div class="nav">
+  <button id="prev">← Anterior</button>
+  <strong id="range">1–500</strong>
+  <button id="next">Siguiente →</button>
+ </div>
+ <div class="note" style="margin-top:8px">Vista de 500 casillas por página. Toca una casilla para marcarla o desmarcarla.</div>
+</section>
+<section class="panel">
+ <div class="grid" id="grid" aria-label="Casillas numeradas"></div>
+ <div class="nav">
+  <button id="prev2">← Anterior</button><span class="muted" id="page">Página 1 de 900</span><button id="next2">Siguiente →</button>
+ </div>
+</section>
+<section class="panel">
+ <div class="controls">
+  <button id="export">Exportar respaldo</button>
+  <button id="importBtn">Importar respaldo</button>
+  <input id="file" type="file" accept="application/json" hidden>
+ </div>
+ <p class="note">El avance se guarda automáticamente en este navegador. Usa “Exportar respaldo” para guardar una copia y poder recuperarla si cambias de celular o navegador.</p>
+ <div class="note" id="status" role="status">Preparando…</div>
+</section>
+</main>
+<script>
+(() => {
+ const TOTAL=450000, SIZE=500, DB='casillas450k', STORE='marked';
+ let page=0, marked=new Set(), db;
+ const $=id=>document.getElementById(id);
+ const fmt=n=>n.toLocaleString('es-CO');
+ function openDB(){return new Promise((resolve,reject)=>{
+  const req=indexedDB.open(DB,1);
+  req.onupgradeneeded=()=>req.result.createObjectStore(STORE,{keyPath:'id'});
+  req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+ });}
+ function tx(mode='readonly'){return db.transaction(STORE,mode).objectStore(STORE);}
+ function save(n,on){return new Promise((resolve,reject)=>{
+  const req=on?tx('readwrite').put({id:n}):tx('readwrite').delete(n);
+  req.onsuccess=resolve;req.onerror=()=>reject(req.error);
+ });}
+ async function load(){return new Promise((resolve,reject)=>{
+  const req=tx().getAllKeys();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+ });}
+ function updateStats(){
+  const n=marked.size,p=n/TOTAL*100;
+  $('count').textContent=fmt(n)+' / '+fmt(TOTAL);
+  $('pct').textContent=p.toFixed(2).replace('.',',')+'%';
+  $('progress').value=n;
+  $('remaining').textContent='Faltan '+fmt(TOTAL-n)+' casillas';
+ }
+ function render(){
+  const start=page*SIZE+1,end=Math.min(TOTAL,start+SIZE-1);
+  $('range').textContent=fmt(start)+'–'+fmt(end);
+  $('page').textContent='Página '+fmt(page+1)+' de 900';
+  $('prev').disabled=$('prev2').disabled=page===0;
+  $('next').disabled=$('next2').disabled=end===TOTAL;
+  const frag=document.createDocumentFragment();
+  for(let n=start;n<=end;n++){
+   const label=document.createElement('label');label.className='cell'+(marked.has(n)?' done':'');
+   const cb=document.createElement('input');cb.type='checkbox';cb.checked=marked.has(n);cb.setAttribute('aria-label','Marcar '+n);
+   cb.addEventListener('change',async()=>{
+    label.classList.toggle('done',cb.checked);
+    if(cb.checked)marked.add(n);else marked.delete(n);
+    updateStats();$('status').textContent='Guardando…';
+    try{await save(n,cb.checked);$('status').textContent='Avance guardado automáticamente.'}
+    catch(e){$('status').textContent='No se pudo guardar. Exporta un respaldo.'}
+   });
+   label.append(cb,document.createTextNode(fmt(n)));frag.append(label);
+  }
+  $('grid').replaceChildren(frag);
+ }
+ function goTo(n){if(!Number.isInteger(n)||n<1||n>TOTAL){$('status').textContent='Escribe un número entre 1 y 450.000.';return}
+  page=Math.floor((n-1)/SIZE);render();$('status').textContent='Mostrando el número '+fmt(n)+'.';
+ }
+ $('prev').onclick=$('prev2').onclick=()=>{if(page>0){page--;render()}};
+ $('next').onclick=$('next2').onclick=()=>{if((page+1)*SIZE<TOTAL){page++;render()}};
+ $('go').onclick=()=>goTo(Number($('jump').value));
+ $('jump').addEventListener('keydown',e=>{if(e.key==='Enter')goTo(Number($('jump').value))});
+ $('export').onclick=()=>{
+  const blob=new Blob([JSON.stringify({total:TOTAL,marked:[...marked].sort((a,b)=>a-b)})],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='respaldo-casillas-450000.json';a.click();URL.revokeObjectURL(a.href);
+ };
+ $('importBtn').onclick=()=>$('file').click();
+ $('file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{const data=JSON.parse(await f.text());if(data.total!==TOTAL||!Array.isArray(data.marked))throw Error();
+   const clean=[...new Set(data.marked.filter(n=>Number.isInteger(n)&&n>=1&&n<=TOTAL))];
+   const store=tx('readwrite');store.clear();clean.forEach(id=>store.put({id}));
+   await new Promise((r,j)=>{store.transaction.oncomplete=r;store.transaction.onerror=j});
+   marked=new Set(clean);updateStats();render();$('status').textContent='Respaldo importado correctamente.';
+  }catch(err){$('status').textContent='El archivo no es un respaldo válido.'}
+  e.target.value='';
+ };
+ (async()=>{
+  try{db=await openDB();marked=new Set(await load());updateStats();render();$('status').textContent='Listo. Tu avance se guarda automáticamente.'}
+  catch(e){$('status').textContent='Este navegador no permite guardar el avance. Prueba Chrome actualizado.'}
+ })();
+})();
+</script>
+</body></html>
